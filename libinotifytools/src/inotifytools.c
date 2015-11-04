@@ -37,9 +37,9 @@ static int dir_count = 0;
 #define _GNU_SOURCE
 #include <search.h>
 
-static char *dir_stack[MAX_ENTRIES];
-static int hcreate_return_value;
-static struct hsearch_data tab = {0};
+char *dir_stack[MAX_ENTRIES];
+int hcreate_return_value;
+struct hsearch_data tab = {0};
 
 
 #define NIL (-1L)
@@ -1347,7 +1347,6 @@ int inotifytools_watch_recursively_with_exclude( char const * path, int events,
 		}
 	}
 
-	hcreate_r(MAX_ENTRIES, &tab);
 	if ( path[strlen(path)-1] != '/' ) {
 		nasprintf( &my_path, "%s/", path );
 	}
@@ -1355,6 +1354,10 @@ int inotifytools_watch_recursively_with_exclude( char const * path, int events,
 		my_path = (char *)path;
 	}
 
+	if ( ! hcreate_return_value ) {
+		printf("creating hash table\n");
+		hcreate_return_value = hcreate_r(MAX_ENTRIES, &tab);
+	}
 	static struct dirent * ent;
 	char * next_file;
 	static struct stat64 my_stat;
