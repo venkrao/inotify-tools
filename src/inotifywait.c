@@ -27,6 +27,7 @@ extern char *optarg;
 extern int optind, opterr, optopt;
 
 #define MAX_STRLEN 4096
+#define EXCLUDE_CHUNK 1024
 
 #define nasprintf(...) niceassert( -1 != asprintf(__VA_ARGS__), "out of memory")
 
@@ -37,7 +38,7 @@ bool parse_opts(
   int * events,
   bool * monitor,
   int * quiet,
-  long int * timeout,
+  unsigned long int * timeout,
   int * recursive,
   bool * csv,
   bool * daemon,
@@ -46,10 +47,8 @@ bool parse_opts(
   char ** timefmt,
   char ** fromfile,
   char ** outfile,
-  char ** exc_regex,
-  char ** exc_iregex,
-  char ** inc_regex,
-  char ** inc_iregex
+  char ** regex,
+  char ** iregex
 );
 
 void print_help();
@@ -58,10 +57,6 @@ void print_help();
 char * csv_escape( char * string ) {
 	static char csv[MAX_STRLEN+1];
 	static unsigned int i, ind;
-
-	if (string == NULL) {
-	  return NULL;
-	}
 
 	if ( strlen(string) > MAX_STRLEN ) {
 		return NULL;
@@ -124,7 +119,7 @@ void validate_format( char * fmt ) {
 void output_event_csv( struct inotify_event * event ) {
     char *filename = csv_escape(inotifytools_filename_from_wd(event->wd));
     if (filename != NULL)
-        printf("%s,", filename);
+        printf("%s,", csv_escape(filename));
 
 	printf("%s,", csv_escape( inotifytools_event_to_str( event->mask ) ) );
 	if ( event->len > 0 )
@@ -151,7 +146,7 @@ int main(int argc, char ** argv)
         int orig_events;
 	bool monitor = false;
 	int quiet = 0;
-	long int timeout = BLOCKING_TIMEOUT;
+	unsigned long int timeout = 0;
 	int recursive = 0;
 	bool csv = false;
 	bool daemon = false;
@@ -160,41 +155,36 @@ int main(int argc, char ** argv)
 	char * timefmt = NULL;
 	char * fromfile = NULL;
 	char * outfile = NULL;
-	char * exc_regex = NULL;
-	char * exc_iregex = NULL;
-	char * inc_regex = NULL;
-	char * inc_iregex = NULL;
+	char * regex = NULL;
+	char * iregex = NULL;
 	pid_t pid;
     int fd;
 
 	// Parse commandline options, aborting if something goes wrong
 	if ( !parse_opts(&argc, &argv, &events, &monitor, &quiet, &timeout,
 	                 &recursive, &csv, &daemon, &syslog, &format, &timefmt, 
-                         &fromfile, &outfile,
-                         &exc_regex, &exc_iregex, &inc_regex, &inc_iregex) ) {
+                         &fromfile, &outfile, &regex, &iregex) ) {
 		return EXIT_FAILURE;
 	}
 
 	if ( !inotifytools_initialize() ) {
-		warn_inotify_init_error();
+		fprintf(stderr, "Couldn't initialize inotify.  Are you running Linux "
+		                "2.6.13 or later, and was the\n"
+		                "CONFIG_INOTIFY option enabled when your kernel was "
+		                "compiled?  If so, \n"
+		                "something mysterious has gone wrong.  Please e-mail "
+		                PACKAGE_BUGREPORT "\n"
+		                " and mention that you saw this message.\n");
 		return EXIT_FAILURE;
 	}
 
 	if ( timefmt ) inotifytools_set_printf_timefmt( timefmt );
 	if (
-		(exc_regex && !inotifytools_ignore_events_by_regex(exc_regex, REG_EXTENDED) ) ||
-		(exc_iregex && !inotifytools_ignore_events_by_regex(exc_iregex, REG_EXTENDED|
+		(regex && !inotifytools_ignore_events_by_regex(regex, REG_EXTENDED) ) ||
+		(iregex && !inotifytools_ignore_events_by_regex(iregex, REG_EXTENDED|
 		                                                        REG_ICASE))
 	) {
 		fprintf(stderr, "Error in `exclude' regular expression.\n");
-		return EXIT_FAILURE;
-	}
-	if (
-		(inc_regex && !inotifytools_ignore_events_by_inverted_regex(inc_regex, REG_EXTENDED) ) ||
-		(inc_iregex && !inotifytools_ignore_events_by_inverted_regex(inc_iregex, REG_EXTENDED|
-		                                                        REG_ICASE))
-	) {
-		fprintf(stderr, "Error in `include' regular expression.\n");
 		return EXIT_FAILURE;
 	}
 
@@ -423,7 +413,7 @@ bool parse_opts(
   int * events,
   bool * monitor,
   int * quiet,
-  long int * timeout,
+  unsigned long int * timeout,
   int * recursive,
   bool * csv,
   bool * daemon,
@@ -432,30 +422,19 @@ bool parse_opts(
   char ** timefmt,
   char ** fromfile,
   char ** outfile,
-  char ** exc_regex,
-  char ** exc_iregex,
-  char ** inc_regex,
-  char ** inc_iregex
+  char ** regex,
+  char ** iregex
 ) {
 	assert( argc ); assert( argv ); assert( events ); assert( monitor );
 	assert( quiet ); assert( timeout ); assert( csv ); assert( daemon );
 	assert( syslog ); assert( format ); assert( timefmt ); assert( fromfile ); 
-	assert( outfile ); assert( exc_regex ); assert( exc_iregex );
-	assert( inc_regex ); assert( inc_iregex );
+	assert( outfile ); assert( regex ); assert( iregex );
 
 	// Short options
 	char * opt_string = "mrhcdsqt:fo:e:";
 
 	// Construct array
-	struct option long_opts[19];
-
-	// How many times --exclude has been specified
-	unsigned int exclude_count = 0;
-
-	// How many times --excludei has been specified
-	unsigned int excludei_count = 0;
-
-	const char *regex_warning = "only the last option will be taken into consideration.\n";
+	struct option long_opts[17];
 
 	// --help
 	long_opts[0].name = "help";
@@ -483,6 +462,7 @@ bool parse_opts(
 	long_opts[4].has_arg = 1;
 	long_opts[4].flag = NULL;
 	long_opts[4].val = (int)'t';
+	char * timeout_end = NULL;
 	// --filename
 	long_opts[5].name = "filename";
 	long_opts[5].has_arg = 0;
@@ -540,21 +520,11 @@ bool parse_opts(
 	long_opts[15].has_arg = 1;
 	long_opts[15].flag = NULL;
 	long_opts[15].val = (int)'b';
-	// --include
-	long_opts[16].name = "include";
-	long_opts[16].has_arg = 1;
-	long_opts[16].flag = NULL;
-	long_opts[16].val = (int)'j';
-	// --includei
-	long_opts[17].name = "includei";
-	long_opts[17].has_arg = 1;
-	long_opts[17].flag = NULL;
-	long_opts[17].val = (int)'k';
 	// Empty last element
-	long_opts[18].name = 0;
-	long_opts[18].has_arg = 0;
-	long_opts[18].flag = 0;
-	long_opts[18].val = 0;
+	long_opts[16].name = 0;
+	long_opts[16].has_arg = 0;
+	long_opts[16].flag = 0;
+	long_opts[16].val = 0;
 
 	// Get first option
 	char curr_opt = getopt_long(*argc, *argv, opt_string, long_opts, NULL);
@@ -626,24 +596,12 @@ bool parse_opts(
 
 			// --exclude
 			case 'a':
-				(*exc_regex) = optarg;
-				exclude_count++;
+				(*regex) = optarg;
 				break;
 
 			// --excludei
 			case 'b':
-				(*exc_iregex) = optarg;
-				excludei_count++;
-				break;
-
-			// --include
-			case 'j':
-				(*inc_regex) = optarg;
-				break;
-
-			// --includei
-			case 'k':
-				(*inc_iregex) = optarg;
+				(*iregex) = optarg;
 				break;
 
 			// --fromfile
@@ -666,10 +624,16 @@ bool parse_opts(
 
 			// --timeout or -t
 			case 't':
-			  if (!is_timeout_option_valid(timeout, optarg)) {
-			    return false;
-			  }
-			  break;
+				*timeout = strtoul(optarg, &timeout_end, 10);
+				if ( *timeout_end != '\0' )
+				{
+					fprintf(stderr, "'%s' is not a valid timeout value.\n"
+					        "Please specify an integer of value 0 or "
+					        "greater.\n",
+					        optarg);
+					return false;
+				}
+				break;
 
 			// --event or -e
 			case 'e':
@@ -697,19 +661,13 @@ bool parse_opts(
 
 	}
 
-	if ( *exc_regex && *exc_iregex ) {
+	if ( *monitor && *timeout != 0 ) {
+		fprintf(stderr, "-m and -t cannot both be specified.\n");
+		return false;
+	}
+
+	if ( *regex && *iregex ) {
 		fprintf(stderr, "--exclude and --excludei cannot both be specified.\n");
-		return false;
-	}
-
-	if ( *inc_regex && *inc_iregex ) {
-		fprintf(stderr, "--include and --includei cannot both be specified.\n");
-		return false;
-	}
-
-	if ( (*inc_regex && *exc_regex) || (*inc_regex && *exc_iregex) ||
-		 (*inc_iregex && *exc_regex) || (*inc_iregex && *exc_iregex)) {
-		fprintf(stderr, "include and exclude regexp cannot both be specified.\n");
 		return false;
 	}
 
@@ -734,14 +692,6 @@ bool parse_opts(
 		return false;
 	}
 
-	if (exclude_count > 1) {
-	  fprintf(stderr, "--exclude: %s", regex_warning);
-	}
-
-	if (excludei_count > 1) {
-	  fprintf(stderr, "--excludei: %s", regex_warning);
-	}
-
 	(*argc) -= optind;
 	*argv = &(*argv)[optind];
 
@@ -762,19 +712,12 @@ void print_help()
 	       "watched.\n");
 	printf("\t--exclude <pattern>\n"
 	       "\t              \tExclude all events on files matching the\n"
-	       "\t              \textended regular expression <pattern>.\n"
-	       "\t              \tOnly the last --exclude option will be\n"
-	       "\t              \ttaken into consideration.\n");
+	       "\t              \textended regular expression <pattern>.\n");
 	printf("\t--excludei <pattern>\n"
 	       "\t              \tLike --exclude but case insensitive.\n");
-	printf("\t--include <pattern>\n"
-	       "\t              \tExclude all events on files except the ones\n"
-	       "\t              \tmatching the extended regular expression\n"
-	       "\t              \t<pattern>.\n");
-	printf("\t--includei <pattern>\n"
-	       "\t              \tLike --include but case insensitive.\n");
-	printf("\t-m|--monitor  \tKeep listening for events forever or until --timeout expires.\n"
-	       "\t              \tWithout this option, inotifywait will exit after one event is received.\n");
+	printf("\t-m|--monitor  \tKeep listening for events forever.  Without\n"
+	       "\t              \tthis option, inotifywait will exit after one\n"
+	       "\t              \tevent is received.\n");
 	printf("\t-d|--daemon   \tSame as --monitor, except run in the background\n"
                "\t              \tlogging events to a file specified by --outfile.\n"
                "\t              \tImplies --syslog.\n");
@@ -796,7 +739,7 @@ void print_help()
 	       "\t              \tWhen listening for a single event, time out "
 	       "after\n"
 	       "\t              \twaiting for an event for <seconds> seconds.\n"
-	       "\t              \tIf <seconds> is negative, inotifywait will never time "
+	       "\t              \tIf <seconds> is 0, inotifywait will never time "
 	       "out.\n");
 	printf("\t-e|--event <event1> [ -e|--event <event2> ... ]\n"
 	       "\t\tListen for specific event(s).  If omitted, all events are \n"

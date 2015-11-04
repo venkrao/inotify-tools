@@ -100,7 +100,7 @@ static void RB_ENTRY(_delete_fix)(struct RB_ENTRY(node) **, struct RB_ENTRY(node
 #endif
 
 #ifndef no_walk
-static void RB_ENTRY(_walk)(const struct RB_ENTRY(node) *, void (*)(const RB_ENTRY(data_t) *, const VISIT, const int, void *), void *, int);
+static void RB_ENTRY(_walk)(const struct RB_ENTRY(node) *, void (*)(const RB_ENTRY(data_t) *, const VISIT_RB, const int, void *), void *, int);
 #endif
 
 #ifndef no_readlist
@@ -117,9 +117,9 @@ static void RB_ENTRY(_closelist)(RBLIST *);
 **
 ** Basically a red/black balanced tree has the following properties:-
 ** 1) Every node is either red or black (colour is RED or BLACK)
-** 2) A leaf (RBNULL pointer) is considered black
+** 2) A leaf_rb (RBNULL pointer) is considered black
 ** 3) If a node is red then its children are black
-** 4) Every path from a node to a leaf contains the same no
+** 4) Every path from a node to a leaf_rb contains the same no
 **    of black nodes
 **
 ** 3) & 4) above guarantee that the longest path (alternating
@@ -232,7 +232,7 @@ RB_ENTRY(delete)(const RB_ENTRY(data_t) *key, struct RB_ENTRY(tree) *rbinfo)
 
 #ifndef no_walk
 RB_STATIC void
-RB_ENTRY(walk)(const struct RB_ENTRY(tree) *rbinfo, void (*action)(const RB_ENTRY(data_t) *, const VISIT, const int, void *), void *arg)
+RB_ENTRY(walk)(const struct RB_ENTRY(tree) *rbinfo, void (*action)(const RB_ENTRY(data_t) *, const VISIT_RB, const int, void *), void *arg)
 {
 	if (rbinfo==NULL)
 		return;
@@ -838,27 +838,27 @@ RB_ENTRY(_delete_fix)(struct RB_ENTRY(node) **rootp, struct RB_ENTRY(node) *x)
 
 #ifndef no_walk
 static void
-RB_ENTRY(_walk)(const struct RB_ENTRY(node) *x, void (*action)(const RB_ENTRY(data_t) *, const VISIT, const int, void *), void *arg, int level)
+RB_ENTRY(_walk)(const struct RB_ENTRY(node) *x, void (*action)(const RB_ENTRY(data_t) *, const VISIT_RB, const int, void *), void *arg, int level)
 {
 	if (x==RBNULL)
 		return;
 
 	if (x->left==RBNULL && x->right==RBNULL)
 	{
-		/* leaf */
-		(*action)(RB_GET(x, key), leaf, level, arg);
+		/* leaf_rb */
+		(*action)(RB_GET(x, key), leaf_rb, level, arg);
 	}
 	else
 	{
-		(*action)(RB_GET(x, key), preorder, level, arg);
+		(*action)(RB_GET(x, key), preorder_rb, level, arg);
 
 		RB_ENTRY(_walk)(x->left, action, arg, level+1);
 
-		(*action)(RB_GET(x, key), postorder, level, arg);
+		(*action)(RB_GET(x, key), postorder_rb, level, arg);
 
 		RB_ENTRY(_walk)(x->right, action, arg, level+1);
 
-		(*action)(RB_GET(x, key), endorder, level, arg);
+		(*action)(RB_GET(x, key), endorder_rb, level, arg);
 	}
 }
 #endif /* no_walk */

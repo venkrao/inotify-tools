@@ -64,12 +64,12 @@
 /* For rbwalk - pinched from search.h */
 typedef enum
 {
-  preorder,
-  postorder,
-  endorder,
-  leaf
+  preorder_rb,
+  postorder_rb,
+  endorder_rb,
+  leaf_rb
 }
-VISIT;
+VISIT_RB;
 
 struct RB_ENTRY(lists) { 
 const struct RB_ENTRY(node) *rootp; 
@@ -118,7 +118,7 @@ RB_STATIC void RB_ENTRY(destroy)(struct RB_ENTRY(tree) *);
 
 #ifndef no_walk
 RB_STATIC void RB_ENTRY(walk)(const struct RB_ENTRY(tree) *,
-		void (*)(const RB_ENTRY(data_t) *, const VISIT, const int, void *),
+		void (*)(const RB_ENTRY(data_t) *, const VISIT_RB, const int, void *),
 		void *); 
 #endif
 

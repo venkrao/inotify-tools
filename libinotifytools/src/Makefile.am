@@ -10,6 +10,7 @@ test_LDADD = libinotifytools.la
 
 TESTS = test
 
+
 EXTRA_DIST = example.c Doxyfile
 
 nobase_include_HEADERS = inotifytools/inotifytools.h inotifytools/inotify-nosys.h inotifytools/inotify.h
@@ -22,6 +23,7 @@ doc/html/*: inotifytools.c Doxyfile
 	$(DOXYGEN)
 
 shareddocdir = $(datadir)/doc
+docdir = $(shareddocdir)/libinotifytools/html
 doc_DATA = doc/html/*
 
 clean-local:
@@ -32,5 +34,9 @@ uninstall-hook:
 
 endif DOXYGEN_ENABLE
 
+
+
 dist-hook:
 	rm $(distdir)/inotifytools/inotify.h
+	touch -d '2 days ago' $(distdir)/*
+
