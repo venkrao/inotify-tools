@@ -32,53 +32,17 @@
 #include <setjmp.h>
 
 #include "inotifytools/inotify.h"
-static int dir_count = 0;
-#define MAX_ENTRIES 10000
-#define _GNU_SOURCE
-#include <search.h>
 
-char *dir_stack[MAX_ENTRIES];
-int hcreate_return_value;
-struct hsearch_data tab = {0};
+#include "uthash.h"
 
+struct my_struct {
+    char *dir_name;
+    char dir_used;                    /* key */
+    UT_hash_handle hh;         /* makes this structure hashable */
+};
 
-#define NIL (-1L)
+struct my_struct *hashtable = NULL;
 
-void hadd(struct hsearch_data *tab, char *key, long value)
-{
-    ENTRY item = {key, (void *) value};
-    ENTRY *pitem = &item;
-
-    if (hsearch_r(item, ENTER, &pitem, tab)) {
-        pitem->data = (void *) value;
-    }
-}
-
-void hdelete(struct hsearch_data *tab, char *key)
-{
-    ENTRY item = {key};
-    ENTRY *pitem = &item;
-
-    if (hsearch_r(item, FIND, &pitem, tab)) {
-        pitem->data = (void *) NIL;
-    }
-}
-
-long hfind(struct hsearch_data *tab, char *key)
-{
-    ENTRY item = {key};
-    ENTRY *pitem = &item;
-
-    printf("==>searching for %s\n", key);
-    
-    if (hsearch_r(item, FIND, &pitem, tab)) {
-	printf("==>success\n");
-        return (long) pitem->data;
-    } else {
-	printf("==>fail\n");
-    }
-    return NIL;
-}
 
 /**
  * @file inotifytools/inotifytools.h
@@ -1354,10 +1318,6 @@ int inotifytools_watch_recursively_with_exclude( char const * path, int events,
 		my_path = (char *)path;
 	}
 
-	if ( ! hcreate_return_value ) {
-		printf("creating hash table\n");
-		hcreate_return_value = hcreate_r(MAX_ENTRIES, &tab);
-	}
 	static struct dirent * ent;
 	char * next_file;
 	static struct stat64 my_stat;
@@ -1415,11 +1375,14 @@ int inotifytools_watch_recursively_with_exclude( char const * path, int events,
 						return 0;
 					}
 				} // if !no_watch
-				hadd(&tab, next_file, dir_count);
-				hfind(&tab, next_file);
-				dir_stack[dir_count] = next_file;
-				printf("veraoks_debug: watching %s(%d)\n", next_file, dir_count);
-				dir_count++;
+				//veraoks_debug
+				//printf("Watching %s dir_used=%c\n", next_file, 'n');
+				struct my_struct *s = NULL;
+				s = (struct my_struct*)malloc(sizeof(struct my_struct));
+				s->dir_name = strdup(next_file);
+				s->dir_used = 'n';
+			
+				HASH_ADD_KEYPTR( hh, hashtable, s->dir_name, strlen(s->dir_name), s );	
 				free( next_file );
 			} // if isdir and not islnk
 			else {
@@ -1887,9 +1850,18 @@ int inotifytools_snprintf( char * out, int size,
 
 
 	filename = inotifytools_filename_from_wd( event->wd );
-	printf("filename %s\n",filename);
-	hfind(&tab, filename);
 
+	struct my_struct *s = (struct my_struct*)malloc(sizeof(struct my_struct));
+	struct my_struct *replaced_item_ptr = (struct my_struct*)malloc(sizeof(struct my_struct));
+	HASH_FIND_STR( hashtable, filename, s);
+	    if (s) { 
+		//HASH_DEL( hashtable, s);
+		// If the key is found, then update the dir_used to 'y'
+		// Later, before inotifywait exits, we just iterate, and pirnt all the key, and values.
+		s->dir_used = 'y';
+	    }
+
+	return 0;
 	if ( !fmt || 0 == strlen(fmt) ) {
 		error = EINVAL;
 		return -1;
@@ -2116,4 +2088,21 @@ struct rbtree *inotifytools_wd_sorted_by_event(int sort_event)
 	rbcloselist(all);
 	return ret;
 }
+
+
+void inotifytools_print_unreached_dirs() {
+	printf("caught a ctrl+c. Writing results \n");
+	struct my_struct *s;
+	FILE *f = fopen("/users/veraoks/result.csv", "w");
+	if ( !f ) {
+		printf("failed to open /users/veraoks/result.csv\n");
+		exit(errno);
+	}
+	for (s=hashtable; s != NULL; s=s->hh.next) {
+		fprintf(f, "%s,%c\n", s->dir_name, s->dir_used);
+	}
+	fclose(f);	
+	exit(0);
+}
+
 

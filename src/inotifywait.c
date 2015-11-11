@@ -19,7 +19,6 @@
 #include <stdlib.h>
 #include <syslog.h>
 #include <unistd.h>
-
 #include <inotifytools/inotifytools.h>
 #include <inotifytools/inotify.h>
 
@@ -139,7 +138,6 @@ void output_error( bool syslog, char* fmt, ... ) {
 	va_end(va);
 }
 
-
 int main(int argc, char ** argv)
 {
 	int events = 0;
@@ -160,6 +158,7 @@ int main(int argc, char ** argv)
 	pid_t pid;
     int fd;
 
+	signal(SIGINT, inotifytools_print_unreached_dirs);
 	// Parse commandline options, aborting if something goes wrong
 	if ( !parse_opts(&argc, &argv, &events, &monitor, &quiet, &timeout,
 	                 &recursive, &csv, &daemon, &syslog, &format, &timefmt, 
